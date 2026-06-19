@@ -1,8 +1,7 @@
 require('dotenv').config();
-const express    = require('express');
-const cors       = require('cors');
-const twilio     = require('twilio');
-const nodemailer = require('nodemailer');
+const express = require('express');
+const cors    = require('cors');
+const twilio  = require('twilio');
 
 const app  = express();
 const port = process.env.PORT || 3000;
@@ -16,18 +15,29 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-let transporter;
-function getTransporter() {
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.EMAIL_FROM, pass: process.env.EMAIL_PASSWORD }
-    });
-  }
-  return transporter;
-}
-
 const sessions = {};
+
+// Send email via Resend API (HTTPS, works fine on Render free tier)
+async function sendEmail({ to, subject, text }) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: 'ChexVanz Chat <onboarding@resend.dev>',
+      to: [to],
+      subject,
+      text
+    })
+  });
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Resend API error: ${res.status} ${errBody}`);
+  }
+  return res.json();
+}
 
 const SYSTEM_PROMPT = `You are the friendly chat assistant for ChexVanz, a premium custom van conversion company that builds dream adventure vans for clients nationwide.
 
@@ -118,13 +128,11 @@ app.post('/chat', async (req, res) => {
     if (needsHuman) {
       sessions[sessionId] = { question: message, history, timestamp: Date.now(), reply: null, busy: false };
 
-      // ALERT METHOD: Email (SMS temporarily disabled pending A2P 10DLC registration)
       try {
         const snippet = message.length > 200 ? message.slice(0,200) + '…' : message;
-        await getTransporter().sendMail({
-          from: process.env.EMAIL_FROM,
+        await sendEmail({
           to: 'info@chexvanz.com',
-          subject: `🚐 ChexVanz Chat — Needs Your Reply`,
+          subject: '🚐 ChexVanz Chat — Needs Your Reply',
           text: `A visitor on the chat widget asked something Claude couldn't fully answer:\n\n"${snippet}"\n\nSession ID: ${sessionId}\n\nTo reply, log into the chat or wait for the visitor to leave their email if you don't respond within 10 minutes.\n\n(Note: SMS alerts are temporarily disabled while A2P 10DLC registration completes. Once approved we'll switch back to text alerts.)`
         });
       } catch (emailErr) {
@@ -172,8 +180,7 @@ app.post('/email', async (req, res) => {
   const { sessionId, email, history = [] } = req.body;
   const summary = history.map(h => `${h.role === 'user' ? 'Visitor' : 'Bot'}: ${h.content}`).join('\n');
   try {
-    await getTransporter().sendMail({
-      from: process.env.EMAIL_FROM,
+    await sendEmail({
       to: 'info@chexvanz.com',
       subject: `💬 New chat lead: ${email}`,
       text: `A visitor left their email for follow-up.\n\nEmail: ${email}\n\nConversation:\n${summary || '(none)'}`
