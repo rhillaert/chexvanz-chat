@@ -16,6 +16,17 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
+let transporter;
+function getTransporter() {
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.EMAIL_FROM, pass: process.env.EMAIL_PASSWORD }
+    });
+  }
+  return transporter;
+}
+
 const sessions = {};
 
 const SYSTEM_PROMPT = `You are the friendly chat assistant for ChexVanz, a premium custom van conversion company that builds dream adventure vans for clients nationwide.
@@ -106,12 +117,19 @@ app.post('/chat', async (req, res) => {
 
     if (needsHuman) {
       sessions[sessionId] = { question: message, history, timestamp: Date.now(), reply: null, busy: false };
-      const snippet = message.length > 120 ? message.slice(0,120) + '…' : message;
-      await twilioClient.messages.create({
-        body: `💬 ChexVanz chat question:\n"${snippet}"\n\nReply to respond (or text BUSY to delay).\nSession: ${sessionId.slice(-6)}`,
-        from: process.env.TWILIO_FROM_NUMBER,
-        to: process.env.OWNER_PHONE
-      });
+
+      // ALERT METHOD: Email (SMS temporarily disabled pending A2P 10DLC registration)
+      try {
+        const snippet = message.length > 200 ? message.slice(0,200) + '…' : message;
+        await getTransporter().sendMail({
+          from: process.env.EMAIL_FROM,
+          to: 'info@chexvanz.com',
+          subject: `🚐 ChexVanz Chat — Needs Your Reply`,
+          text: `A visitor on the chat widget asked something Claude couldn't fully answer:\n\n"${snippet}"\n\nSession ID: ${sessionId}\n\nTo reply, log into the chat or wait for the visitor to leave their email if you don't respond within 10 minutes.\n\n(Note: SMS alerts are temporarily disabled while A2P 10DLC registration completes. Once approved we'll switch back to text alerts.)`
+        });
+      } catch (emailErr) {
+        console.error('Alert email error:', emailErr);
+      }
     }
 
     res.json({ reply, needsHuman });
@@ -130,6 +148,7 @@ app.get('/poll', (req, res) => {
   res.json({ reply: null, busy: false });
 });
 
+// SMS webhook kept in place for when A2P registration is approved
 app.post('/sms', (req, res) => {
   const incomingBody = (req.body.Body || '').trim();
   const from = req.body.From || '';
@@ -153,9 +172,12 @@ app.post('/email', async (req, res) => {
   const { sessionId, email, history = [] } = req.body;
   const summary = history.map(h => `${h.role === 'user' ? 'Visitor' : 'Bot'}: ${h.content}`).join('\n');
   try {
-    const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.EMAIL_FROM, pass: process.env.EMAIL_PASSWORD } });
-    await transporter.sendMail({ from: process.env.EMAIL_FROM, to: 'info@chexvanz.com', subject: `💬 New chat lead: ${email}`, text: `A visitor left their email for follow-up.\n\nEmail: ${email}\n\nConversation:\n${summary || '(none)'}` });
-    await twilioClient.messages.create({ body: `📧 Chat lead: ${email} — check info@chexvanz.com`, from: process.env.TWILIO_FROM_NUMBER, to: process.env.OWNER_PHONE });
+    await getTransporter().sendMail({
+      from: process.env.EMAIL_FROM,
+      to: 'info@chexvanz.com',
+      subject: `💬 New chat lead: ${email}`,
+      text: `A visitor left their email for follow-up.\n\nEmail: ${email}\n\nConversation:\n${summary || '(none)'}`
+    });
   } catch(err) { console.error('Email error:', err); }
   res.json({ ok: true });
 });
