@@ -131,7 +131,7 @@ app.post('/chat', async (req, res) => {
       try {
         const snippet = message.length > 200 ? message.slice(0,200) + '…' : message;
         await sendEmail({
-          to: 'info@chexvanz.com',
+          to: 'robin@chexvanz.com',
           subject: '🚐 ChexVanz Chat — Needs Your Reply',
           text: `A visitor on the chat widget asked something Claude couldn't fully answer:\n\n"${snippet}"\n\nSession ID: ${sessionId}\n\nTo reply, log into the chat or wait for the visitor to leave their email if you don't respond within 10 minutes.\n\n(Note: SMS alerts are temporarily disabled while A2P 10DLC registration completes. Once approved we'll switch back to text alerts.)`
         });
@@ -181,7 +181,7 @@ app.post('/email', async (req, res) => {
   const summary = history.map(h => `${h.role === 'user' ? 'Visitor' : 'Bot'}: ${h.content}`).join('\n');
   try {
     await sendEmail({
-      to: 'info@chexvanz.com',
+      to: 'robin@chexvanz.com',
       subject: `💬 New chat lead: ${email}`,
       text: `A visitor left their email for follow-up.\n\nEmail: ${email}\n\nConversation:\n${summary || '(none)'}`
     });
